@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pembuat Dokumen Slide ke Word</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- PDF.js Library untuk membaca file PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // Set worker untuk PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        
+        .input-area:focus-within {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        /* Loading spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 3px solid #3b82f6;
+            width: 24px;
+            height: 24px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+
+    <div class="max-w-6xl mx-auto">
+        <!-- Header -->
+        <div class="bg-white rounded-xl shadow-sm p-6 mb-6 border border-gray-100">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">
+                <i class="fa-solid fa-file-word text-blue-600 mr-2"></i>Pembuat Laporan Slide
+            </h1>
+            <p class="text-gray-600">
+                Upload gambar atau file PDF slide dan tulis penjelasan.
+                <br>
+                <span class="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded mt-1 inline-block">
+                    <i class="fa-solid fa-file-pdf"></i> Fitur Baru: Bisa upload file <b>PDF</b> (Halaman 1 akan diambil otomatis).
+                </span>
+            </p>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="flex justify-between items-center mb-6 sticky top-4 z-10 bg-gray-50/95 backdrop-blur py-2">
+            <button onclick="addRow()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-medium transition flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> Tambah Slide Baru
+            </button>
+            
+            <button onclick="exportToWord()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg shadow-sm font-medium transition flex items-center gap-2">
+                <i class="fa-solid fa-download"></i> Download Word (.doc)
+            </button>
+        </div>
+
+        <!-- Main Editor Area -->
+        <div id="editor-container" class="space-y-4">
+            <!-- Rows will be added here via JS -->
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        let rowCount = 0;
+
+        window.onload = function() {
+            addRow();
+        };
+
+        function addRow() {
+            rowCount++;
+            const container = document.getElementById('editor-container');
+            
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative group animate-fade-in slide-row';
+            rowDiv.id = `row-${rowCount}`;
+            
+            rowDiv.innerHTML = `
+                <div class="absolute top-4 right-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition z-20">
+                    <button onclick="removeRow('row-${rowCount}')" class="text-red-400 hover:text-red-600 p-2 bg-white rounded-full shadow-sm border border-gray-100" title="Hapus Baris">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+                    
+                    <!-- Kolom Kiri: Gambar/PDF -->
+                    <div class="md:col-span-4 flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                             <span class="bg-blue-100 text-blue-800 text-xs font-semibold mr-2 px-2.5 py-0.5 rounded">Slide ${rowCount}</span>
+                             Gambar / PDF (16:9)
+                        </label>
+                        
+                        <div class="relative w-full aspect-video border-2 border-dashed border-gray-300 rounded-lg hover:bg-gray-50 transition flex flex-col items-center justify-center overflow-hidden bg-gray-50" id="preview-box-${rowCount}">
+                            
+                            <!-- Placeholder -->
+                            <div class="text-center p-4 pointer-events-none absolute z-0" id="placeholder-${rowCount}">
+                                <i class="fa-regular fa-image text-3xl text-gray-400 mb-2"></i>
+                                <p class="text-sm text-gray-500">Upload Gambar / PDF</p>
+                            </div>
+
+                            <!-- Loading Indicator (Hidden by default) -->
+                            <div id="loader-${rowCount}" class="hidden absolute z-30 flex flex-col items-center justify-center bg-white/80 inset-0">
+                                <div class="loader mb-2"></div>
+                                <span class="text-xs text-blue-600 font-medium">Memproses PDF...</span>
+                            </div>
+
+                            <!-- Image Preview -->
+                            <img id="img-preview-${rowCount}" class="hidden w-full h-full object-contain z-10" />
+
+                            <!-- Input accepts Images AND PDF -->
+                            <input type="file" 
+                                accept="image/*,application/pdf" 
+                                onchange="handleFileUpload(this, ${rowCount})"
+                                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Kolom Kanan: Penjelasan -->
+                    <div class="md:col-span-8 flex flex-col">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Penjelasan
+                        </label>
+                        <textarea 
+                            class="explanation-input w-full h-full min-h-[150px] p-4 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none transition"
+                            placeholder="Ketik penjelasan untuk slide ini di sini..."
+                        ></textarea>
+                    </div>
+
+                </div>
+            `;
+            
+            container.appendChild(rowDiv);
+            rowDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function removeRow(id) {
+            const row = document.getElementById(id);
+            if (document.getElementsByClassName('slide-row').length > 1) {
+                row.remove();
+            } else {
+                alert("Minimal harus ada satu slide.");
+            }
+        }
+
+        // FUNGSI UTAMA: Menangani Upload (Gambar Biasa atau PDF)
+        async function handleFileUpload(input, id) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const loader = document.getElementById(`loader-${id}`);
+            const placeholder = document.getElementById(`placeholder-${id}`);
+            const imgPreview = document.getElementById(`img-preview-${id}`);
+
+            // Reset tampilan
+            imgPreview.classList.add('hidden');
+            placeholder.classList.add('hidden');
+            loader.classList.remove('hidden'); // Tampilkan loading
+
+            if (file.type === 'application/pdf') {
+                // --- LOGIKA PDF ---
+                const fileReader = new FileReader();
+                
+                fileReader.onload = async function() {
+                    const typedarray = new Uint8Array(this.result);
+
+                    try {
+                        // 1. Load PDF Document
+                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                        
+                        // 2. Ambil Halaman 1
+                        const page = await pdf.getPage(1);
+                        
+                        // 3. Render ke Canvas (Resolusi tinggi: scale 2)
+                        const scale = 2;
+                        const viewport = page.getViewport({ scale: scale });
+
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.height = viewport.height;
+                        canvas.width = viewport.width;
+
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+                        
+                        await page.render(renderContext).promise;
+                        
+                        // 4. Konversi Canvas ke Image URL (PNG)
+                        const dataUrl = canvas.toDataURL('image/png');
+                        
+                        // 5. Tampilkan & Simpan
+                        imgPreview.src = dataUrl;
+                        imgPreview.classList.remove('hidden');
+                        input.setAttribute('data-base64', dataUrl);
+                        
+                    } catch (error) {
+                        console.error('Error parsing PDF:', error);
+                        alert('Gagal membaca file PDF. Pastikan file tidak rusak.');
+                        placeholder.classList.remove('hidden'); // Kembalikan placeholder jika gagal
+                        input.value = ''; // Reset input
+                    } finally {
+                        loader.classList.add('hidden'); // Sembunyikan loading
+                    }
+                };
+                
+                fileReader.readAsArrayBuffer(file);
+
+            } else if (file.type.startsWith('image/')) {
+                // --- LOGIKA GAMBAR BIASA ---
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    imgPreview.src = e.target.result;
+                    imgPreview.classList.remove('hidden');
+                    input.setAttribute('data-base64', e.target.result);
+                    loader.classList.add('hidden');
+                }
+                reader.readAsDataURL(file);
+            } else {
+                alert("Format file tidak didukung. Harap upload Gambar atau PDF.");
+                loader.classList.add('hidden');
+                placeholder.classList.remove('hidden');
+            }
+        }
+
+        function exportToWord() {
+            const rows = document.getElementsByClassName('slide-row');
+            let tableContent = '';
+            let mhtmlParts = [];
+            
+            const boundary = "----=_NextPart_000_0000_" + Math.random().toString(36).substr(2);
+            
+            for (let i = 0; i < rows.length; i++) {
+                const row = rows[i];
+                
+                const textArea = row.querySelector('.explanation-input');
+                const textVal = textArea.value || ""; 
+                const formattedText = textVal.replace(/\n/g, '<br>');
+
+                const fileInput = row.querySelector('input[type="file"]');
+                const fullBase64 = fileInput.getAttribute('data-base64');
+                const slideNumber = i + 1;
+
+                let imgHtml = '<p style="color: #999; font-style:italic; font-size:10pt;">[No Image]</p>';
+                
+                if (fullBase64) {
+                    const imgId = `image_slide_${i}`;
+                    const imgFileName = `image${i}.png`;
+                    // Jika itu dari PDF render atau upload gambar, formatnya pasti data URI
+                    const base64Data = fullBase64.split(',')[1];
+                    // Deteksi mimetype (biasanya png kalau dari canvas PDF, atau asli upload user)
+                    const mimeType = fullBase64.split(';')[0].split(':')[1];
+
+                    // FIX: Ukuran 16:9 (192x108)
+                    imgHtml = `<img src="cid:${imgId}" width="192" height="108" style="width:192px; height:108px; display:block; margin: 0 auto; object-fit: contain;">`;
+
+                    const imgPart = 
+`--${boundary}
+Content-Type: ${mimeType};
+Content-Transfer-Encoding: base64
+Content-Location: ${imgFileName}
+Content-ID: <${imgId}>
+
+${base64Data}
+`;
+                    mhtmlParts.push(imgPart);
+                }
+
+                tableContent += `
+                    <tr>
+                        <td class="col-num" valign="middle" align="center">
+                            <p style="font-family: Arial, sans-serif; font-weight:bold; font-size: 14pt;">${slideNumber}</p>
+                        </td>
+                        <td class="col-img" valign="middle" align="center">
+                            ${imgHtml}
+                        </td>
+                        <td class="col-text" valign="top">
+                            <p style="font-family: Arial, sans-serif; font-size: 11pt;">${formattedText}</p>
+                        </td>
+                    </tr>
+                `;
+            }
+
+            const htmlBody = `
+<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head>
+    <meta charset="utf-8">
+    <title>Laporan Slide</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; }
+        table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        td, th { border: 1px solid #000000; padding: 8px; vertical-align: top; word-wrap: break-word; }
+        
+        .col-num { width: 8%; }               
+        .col-img { width: 30%; background-color: #fafafa; }
+        .col-text { width: 62%; }             
+        
+        th { background-color: #f0f0f0; font-weight: bold; text-align: center; }
+    </style>
+</head>
+<body>
+    <h2 style="text-align: center; margin-bottom: 20px;">Laporan Penjelasan Slide</h2>
+    <table>
+        <thead>
+            <tr>
+                <th class="col-num">No.</th>
+                <th class="col-img">Gambar Slide</th>
+                <th class="col-text">Penjelasan / Narasi</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${tableContent}
+        </tbody>
+    </table>
+</body>
+</html>`;
+
+            const mhtml = `MIME-Version: 1.0
+Content-Type: multipart/related; boundary="${boundary}"
+
+--${boundary}
+Content-Type: text/html; charset="utf-8"
+Content-Location: file:///C:/fake/document.html
+
+${htmlBody}
+
+${mhtmlParts.join('\n')}
+--${boundary}--`;
+
+            const blob = new Blob([mhtml], { type: 'application/msword' });
+            const url = URL.createObjectURL(blob);
+            
+            const downloadLink = document.createElement("a");
+            document.body.appendChild(downloadLink);
+            downloadLink.href = url;
+            downloadLink.download = 'laporan_slide_16_9_pdf_support.doc';
+            downloadLink.click();
+            
+            setTimeout(function() {
+                document.body.removeChild(downloadLink);
+                window.URL.revokeObjectURL(url);
+            }, 100);
+        }
+    </script>
+</body>
+</html>
